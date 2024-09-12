@@ -144,7 +144,12 @@ export default class Blum extends EventEmitter {
           url: 'https://telegram.blum.codes/'
         })
       );
-      await this.tg.disconnect();
+      /**
+       * there's an bug using .disconnect().
+       * calling .disconnect() not fully unregistering gramjs internal _updateLoop
+       * more info: https://github.com/gram-js/gramjs/issues/615
+       */
+      await this.tg.destroy();
 
       return decodeURIComponent(
         decodeURIComponent(
