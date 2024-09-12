@@ -24,7 +24,7 @@ async function check_session_exists(phone) {
 /**
  * @typedef {{
  *  telegram: { username: string; token: string },
- *  blum?: { token: string }
+ *  blum?: { access: string; refresh: string }
  * }} SessionObject
  */
 
