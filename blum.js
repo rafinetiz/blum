@@ -43,6 +43,10 @@ export default class Blum extends EventEmitter {
       hooks: {
         beforeRequest: [
           async (options) => {
+            if (options.url.pathname.lastIndexOf('refresh') !== -1 || options.url.pathname.lastIndexOf('PROVIDER_TELEGRAM_MINI_APP') !== -1) {
+              return;
+            }
+
             if (this.IsTokenValid()) {
               options.headers['authorization'] = 'Bearer ' + this.token.access;
             } else {
