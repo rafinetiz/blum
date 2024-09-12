@@ -89,7 +89,6 @@ async function start_farming() {
     }
 
     blum.Start()
-    //console.log(`${ansi_styles.bold.open}; ${i} | +${phonenum} | ${ansi_styles.color.cyan.open + session.telegram.username + ansi_styles.reset.close}`)
   });
 }
 
