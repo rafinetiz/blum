@@ -147,7 +147,9 @@ export default class Blum extends EventEmitter {
           fromBotMenu: false,
           url: 'https://telegram.blum.codes/'
         })
-      );
+      ).catch(async () => {
+        await this.tg.destroy();
+      });
       /**
        * there's an bug using .disconnect().
        * calling .disconnect() not fully unregistering gramjs internal _updateLoop
