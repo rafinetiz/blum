@@ -19,6 +19,14 @@ export default class Blum extends EventEmitter {
     /** @type {import('telegram').TelegramClient} */
     this.tg = tg;
     
+    /**
+     * @type {{
+     *  access: string;
+     *  refresh: string
+     * }}
+     */
+    this.token = undefined;
+
     /** @type {number} */
     this.__last_daily_time = 0;
     /** @type {{start: number; end: number;}} */
@@ -26,10 +34,38 @@ export default class Blum extends EventEmitter {
       start: 0,
       end: 0
     };
+    /** @type {boolean} */
+    this.__refresh_flag = false;
 
     const base = got.extend({
       http2: true,
       throwHttpErrors: false,
+      hooks: {
+        beforeRequest: [
+          async (options) => {
+            if (this.IsTokenValid()) {
+              options.headers['authorization'] = 'Bearer ' + this.token.access;
+            } else {
+              if (this.__refresh_flag) {
+                return Promise.reject('request canceled because token currently being refreshed')
+              }
+
+              delete options.headers['authorization'];
+              this.__refresh_flag = true;
+
+              if (Blum.CheckRefreshToken(this.token.refresh)) {
+                await this.RefreshToken().finally(() => {
+                  this.__refresh_flag = false;
+                });
+              } else {
+                await this.Login().finally(() => {
+                  this.__refresh_flag = false;
+                });
+              }
+            }
+          }
+        ]
+      },
       headers: {
         'Origin': 'https://telegram.blum.codes',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 Edg/128.0.0.0',
@@ -71,8 +107,25 @@ export default class Blum extends EventEmitter {
   }
 
   /**
-   * @param {string} t authorization token
+   * @param {string} token 
+   * @returns {boolean}
    */
+  static CheckRefreshToken(tokenstr) {
+    try {
+      const token = JSON.parse(
+        Buffer.from(tokenstr.split('.')[1], 'base64').toString()
+      );
+  
+      if (Date.now() / 1000 > token.exp) {
+        return false;
+      }
+
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
   setToken(t) {
     this.token = t;
   }
@@ -141,6 +194,28 @@ export default class Blum extends EventEmitter {
     this.emit('blum:token', response.body.token);
 
     return true;
+  }
+
+  async RefreshToken() {
+    const response = await this.http.userdomain.post('api/v1/auth/refresh', {
+      json: {
+        'refresh': this.token.refresh
+      },
+      responseType: 'json'
+    });
+
+    if (response.ok) {
+      const body = response.body;
+
+      this.token = {
+        access: body.access,
+        refresh: body.refresh
+      }
+
+      return true;
+    } else {
+      return Promise.reject(JSON.stringify(response.body))
+    }
   }
 
   /**
