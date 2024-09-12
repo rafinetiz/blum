@@ -323,11 +323,5 @@ export default class Blum extends EventEmitter {
 
       await sleep(5000);
     }
-    /*
-    while (true) {
-      // Claim Daily
-      
-      await sleep(5000);
-    }*/
   }
 }
