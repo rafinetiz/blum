@@ -73,7 +73,7 @@ async function start_farming() {
     const phonenum = item.replace('.json', '');
     const session = await load_session(phonenum);
     const tg = new TelegramClient(new StringSession(session.telegram.token), parseInt(APP_ID), APP_HASH);
-    const blum = new Blum(tg);
+    const blum = new Blum(session.telegram.username, tg);
     blum.on('blum:token', (token) => {
       save_session(phonenum, {
         ...session,
@@ -86,9 +86,9 @@ async function start_farming() {
 
     if (session.blum) {
       blum.setToken(session.blum);
-    } else {
-      await blum.Login();
     }
+
+    blum.Start()
     //console.log(`${ansi_styles.bold.open}; ${i} | +${phonenum} | ${ansi_styles.color.cyan.open + session.telegram.username + ansi_styles.reset.close}`)
   });
 }

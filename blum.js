@@ -1,19 +1,31 @@
 import got from 'got';
 import EventEmitter from 'node:events';
-
 import { Api } from 'telegram';
+import { randsleep, sleep } from './func.js';
 
 const BLUMBOT_ID = 'BlumCryptoBot';
 
 export default class Blum extends EventEmitter {
   /**
+   * @param {string} name
    * @param {import('telegram').TelegramClient} tg 
    */
-  constructor(tg) {
+  constructor(name, tg) {
     super();
+
+    /** @type {string} */
+    this.name = name;
 
     /** @type {import('telegram').TelegramClient} */
     this.tg = tg;
+    
+    /** @type {number} */
+    this.__last_daily_time = 0;
+    /** @type {{start: number; end: number;}} */
+    this.__farm_time = {
+      start: 0,
+      end: 0
+    };
 
     const base = got.extend({
       http2: true,
@@ -38,9 +50,10 @@ export default class Blum extends EventEmitter {
       },
       timeout: {
         connect: 10000,
-        response: 10000,
+        response: 30000,
       }
     })
+
     /**
      * @type {{
      *  userdomain: got<{prefixUrl: 'https://user-domain.blum.codes'}>,
@@ -96,7 +109,9 @@ export default class Blum extends EventEmitter {
     const webappdata = await this.GetWebAppData();
 
     if (webappdata === null) {
-      return false;
+      const error = new Error('Login::webappdata is null');
+      error.code = "ERR_WEBAPP_NULL";
+      throw error;
     }
 
     const response = await this.http.userdomain.post('api/v1/auth/provider/PROVIDER_TELEGRAM_MINI_APP', {
@@ -105,6 +120,18 @@ export default class Blum extends EventEmitter {
       },
       responseType: 'json'
     });
+
+    if (!response.ok) {
+      const err = new Error('Login::response return non-200 code');
+      err.code = 'ERR_RES_NON200';
+      err.statusCode = response.statusCode;
+
+      if (response.body) {
+        err.body = JSON.stringify(response.body);
+      }
+
+      throw err;
+    }
 
     this.token = {
       access: response.body.token.access,
@@ -137,5 +164,170 @@ export default class Blum extends EventEmitter {
     } catch (err) {
       return false;
     }
+  }
+
+  /**
+   * @returns {Promise<{
+   *  balance: string;
+   *  startTime: number;
+   *  endTime: number;
+   *  currentTime: number;
+   * }>}
+   */
+  async GetBalance() {
+    const response = await this.http.gamedomain.get('api/v1/user/balance', {
+      headers: {
+        'Authorization': 'Bearer ' + this.token.access
+      },
+      responseType: 'json'
+    });
+
+    const body = response.body;
+    return {
+      balance: body.farming.balance,
+      startTime: body.farming.startTime,
+      endTime: body.farming.endTime,
+      currentTime: body.farming.timestamp
+    }
+  }
+
+  async ClaimDaily() {
+    const response = await this.http.gamedomain.post('api/v1/daily-reward?offset=-180', {
+      headers: {
+        'Authorization': 'Bearer ' + this.token.access
+      },
+      responseType: 'json'
+    });
+
+    if (!response.ok && response.body) {
+      return Promise.reject(response.body.message);
+    } else if (!response.ok) {
+      console.error(response);
+      return Promise.reject('unknown error');
+    }
+
+    return true;
+  }
+
+  async ClaimFarming() {
+    const response = await this.http.gamedomain.post('api/v1/farming/claim', {
+      headers: {
+        'Authorization': 'Bearer ' + this.token.access
+      },
+      responseType: 'json'
+    });
+
+    if (!response.ok && response.body) {
+      return Promise.reject(response.body.message);
+    } else if (!response.ok) {
+      console.error(response);
+      return Promise.reject('unknown error');
+    }
+
+    return {
+      balance: response.body.availableBalance
+    };
+  }
+
+  async StartFarming() {
+    const response = await this.http.gamedomain.post('api/v1/farming/start', {
+      headers: {
+        'Authorization': 'Bearer ' + this.token.access
+      },
+      responseType: 'json'
+    });
+
+    if (!response.ok && response.body) {
+      return Promise.reject(response.body.message);
+    } else if (!response.ok) {
+      console.error(response);
+      return Promise.reject('unknown error');
+    }
+
+    const body = response.body;
+    return {
+      balance: body.balance,
+      startTime: body.startTime,
+      endTime: body.endTime
+    }
+  }
+
+  async Start() {
+    if (!this.IsTokenValid()) {
+      try {
+        await this.Login();
+
+        const sleep = randsleep(5,15);
+        console.log(`; ${this.name} | BLUM LOGIN SUCCESS | sleep=${sleep.duration}s`);
+        await sleep.invoke();
+      } catch (error) {
+        console.log(`! ${this.name} | BLUM LOGIN FAILED | error=${error.message}`);
+        if (error.code === 'ERR_RES_NON200') {
+          console.log(`! status=${error.statusCode} | body=${error.body}`);
+        }
+      }
+    }
+
+    await this.GetBalance().then(async v => {
+      this.__farm_time = {
+        start: v.startTime,
+        end: v.endTime
+      }
+
+      console.log(`; ${this.name} | balance=${v.balance} | NextClaimTime=${Math.max(0, (v.endTime - Date.now()) / 1000)}s`);
+    });
+
+    const s = await randsleep(3, 5);
+    console.log(`; ${this.name} | starting | sleep=${s.duration}`);
+    await s.invoke();
+
+    while (true) {
+      const now = Date.now();
+      const nextClaim = new Date(now).setHours(7, 0, 0);
+      if (this.__last_daily_time === 0 || now > nextClaim && now > this.__last_daily_time) {
+        await this.ClaimDaily()
+        .then(async () => {
+          const sleep = randsleep(5, 15);
+          console.log(`; ${this.name} | daily claim success | sleep=${sleep.duration}s`);
+          await sleep.invoke();
+        })
+        .catch((err) => {
+          console.log(`! ${this.name} | daily claim failed | error=${err}`);
+        });
+  
+        this.__last_daily_time = Date.now()
+      }
+
+      if (now > this.__farm_time.end) {
+        try {
+          const { balance } = await this.ClaimFarming();
+          const sleep = randsleep(5, 15);
+          console.log(`; ${this.name} | claim success | balance=${balance} | sleep=${sleep.duration}`);
+          await sleep.invoke();
+
+          await this.StartFarming().then(async (v) => {
+            this.__farm_time = {
+              start: v.startTime,
+              end: v.endTime
+            }
+            const sleep = randsleep(5, 15);
+            console.log(`; $${this.name} | start farming | balance=${balance}`);
+            await sleep.invoke();
+          }).catch((err) => {
+            console.log(`! ${this.name} | start farming failed | error=${err}`);
+          });
+        } catch (err) {
+          console.log(`! ${this.name} | claim failed | error=${err}`);
+        }
+      }
+
+      await sleep(5000);
+    }
+    /*
+    while (true) {
+      // Claim Daily
+      
+      await sleep(5000);
+    }*/
   }
 }
