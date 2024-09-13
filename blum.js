@@ -399,7 +399,7 @@ export default class Blum extends EventEmitter {
               end: v.endTime
             }
             const sleep = randsleep(5, 15);
-            console.log(`; $${this.name} | start farming | balance=${balance}`);
+            console.log(`; ${this.name} | start farming success | balance=${balance} | nextclaim=${(v.endTime - Date.now()) / 1000} | sleep=${sleep.duration}`);
             await sleep.invoke();
           }).catch((err) => {
             console.log(`! ${this.name} | start farming failed | error=${err}`);
