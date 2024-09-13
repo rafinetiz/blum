@@ -2,6 +2,7 @@ import got from 'got';
 import EventEmitter from 'node:events';
 import { Api } from 'telegram';
 import { randsleep, sleep } from './func.js';
+import dayjs from 'dayjs';
 
 const BLUMBOT_ID = 'BlumCryptoBot';
 
@@ -36,6 +37,8 @@ export default class Blum extends EventEmitter {
     };
     /** @type {boolean} */
     this.__refresh_flag = false;
+    /** @type {number} */
+    this.__next_claim_time = 0;
 
     const base = got.extend({
       http2: true,
@@ -363,14 +366,13 @@ export default class Blum extends EventEmitter {
       console.log(`; ${this.name} | balance=${v.balance} | NextClaimTime=${Math.max(0, (v.endTime - Date.now()) / 1000)}s`);
     });
 
-    const s = await randsleep(3, 5);
+    const s = randsleep(3, 5);
     console.log(`; ${this.name} | starting | sleep=${s.duration}`);
     await s.invoke();
 
     while (true) {
       const now = Date.now();
-      const nextClaim = new Date(now).setHours(7, 0, 0);
-      if (this.__last_daily_time === 0 || now > nextClaim && now > this.__last_daily_time) {
+      if (now > this.__next_claim_time) {
         await this.ClaimDaily()
         .then(async () => {
           const sleep = randsleep(5, 15);
@@ -381,7 +383,7 @@ export default class Blum extends EventEmitter {
           console.log(`! ${this.name} | daily claim failed | error=${err}`);
         });
   
-        this.__last_daily_time = Date.now()
+        this.__last_daily_time = dayjs().add(1, 'day').valueOf();
       }
 
       if (now > this.__farm_time.end) {
@@ -407,7 +409,7 @@ export default class Blum extends EventEmitter {
         }
       }
 
-      await sleep(5000);
+      await sleep(60000); // 1 minute
     }
   }
 }
