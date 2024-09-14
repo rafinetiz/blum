@@ -383,7 +383,7 @@ export default class Blum extends EventEmitter {
           console.log(`! ${this.name} | daily claim failed | error=${err}`);
         });
   
-        this.__last_daily_time = dayjs().add(1, 'day').valueOf();
+        this.__next_claim_time = dayjs().add(1, 'day').valueOf();
       }
 
       if (now > this.__farm_time.end) {
