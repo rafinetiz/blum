@@ -334,7 +334,7 @@ export default class Blum extends EventEmitter {
     }
 
     const gameId = startGameResp.body.gameId;
-    const points = 190;
+    const points = [190, 200];
     await sleep(30000 + 5000 + 5000 + 5000 + 5000);
 
     const claimGame = await this.http.gamedomain.post('api/v1/game/claim', {
