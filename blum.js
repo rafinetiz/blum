@@ -255,9 +255,17 @@ export default class Blum extends EventEmitter {
     }
   }
 
+  async GetMe() {
+    const response = await this.http.userdomain.get('api/v1/user/me', {
+      responseType: 'json'
+    });
+
+    console.log(response.body);
+  }
   /**
    * @returns {Promise<{
    *  balance: string;
+   *  gameTicket: number;
    *  startTime: number;
    *  endTime: number;
    *  currentTime: number;
@@ -265,15 +273,14 @@ export default class Blum extends EventEmitter {
    */
   async GetBalance() {
     const response = await this.http.gamedomain.get('api/v1/user/balance', {
-      headers: {
-        'Authorization': 'Bearer ' + this.token.access
-      },
       responseType: 'json'
     });
 
     const body = response.body;
+
     return {
-      balance: body.farming.balance,
+      balance: body.availableBalance,
+      gameTicket: body.playPasses,
       startTime: body.farming.startTime,
       endTime: body.farming.endTime,
       currentTime: body.farming.timestamp
@@ -282,9 +289,6 @@ export default class Blum extends EventEmitter {
 
   async ClaimDaily() {
     const response = await this.http.gamedomain.post('api/v1/daily-reward?offset=-180', {
-      headers: {
-        'Authorization': 'Bearer ' + this.token.access
-      },
       responseType: 'json'
     });
 
@@ -300,9 +304,6 @@ export default class Blum extends EventEmitter {
 
   async ClaimFarming() {
     const response = await this.http.gamedomain.post('api/v1/farming/claim', {
-      headers: {
-        'Authorization': 'Bearer ' + this.token.access
-      },
       responseType: 'json'
     });
 
@@ -318,11 +319,40 @@ export default class Blum extends EventEmitter {
     };
   }
 
+  /**
+   * Play game and claim the reward
+   * 
+   * @returns {Promise<number>} the points gained
+   */
+  async PlayGame() {
+    const startGameResp = await this.http.gamedomain.post('api/v1/game/play', {
+      responseType: 'json'
+    });
+
+    if (!startGameResp.ok) {
+      return Promise.reject(`start game failed. ${JSON.stringify(startGameResp.body)}`);
+    }
+
+    const gameId = startGameResp.body.gameId;
+    const points = 190;
+    await sleep(30000 + 5000 + 5000 + 5000 + 5000);
+
+    const claimGame = await this.http.gamedomain.post('api/v1/game/claim', {
+      json: {
+        gameId,
+        points
+      }
+    });
+
+    if (!claimGame.ok) {
+      return Promise.reject(`game claim failed. ${claimGame.body}`);
+    }
+
+    return points;
+  }
+
   async StartFarming() {
     const response = await this.http.gamedomain.post('api/v1/farming/start', {
-      headers: {
-        'Authorization': 'Bearer ' + this.token.access
-      },
       responseType: 'json'
     });
 
@@ -363,7 +393,7 @@ export default class Blum extends EventEmitter {
         end: v.endTime
       }
 
-      console.log(`; ${this.name} | balance=${v.balance} | NextClaimTime=${Math.max(0, (v.endTime - Date.now()) / 1000)}s`);
+      console.log(`; ${this.name} | balance=${v.balance} | gameTicket=${v.gameTicket} | NextClaimTime=${Math.max(0, (v.endTime - Date.now()) / 1000)}s`);
     });
 
     const s = randsleep(3, 5);
@@ -384,13 +414,36 @@ export default class Blum extends EventEmitter {
         });
   
         this.__next_claim_time = dayjs().add(1, 'day').valueOf();
+
+        try {
+          console.log(`; ${this.name} | checking game daily passes`);
+          let { gameTicket } = await this.GetBalance();
+          const a = randsleep(2, 5);
+          console.log(`; ${this.name} | daily game passes | gameTicket=${gameTicket} | sleep=${a.duration}`);
+          await a.invoke();
+          
+          for (let i = 0; i < gameTicket; i++) {
+            console.log(`; ${this.name} | claiming game ticket ${i} | sleep=~40s`);
+            await this.PlayGame()
+            .then(async (point) => {
+              const s = randsleep(5, 8);
+              console.log(`; ${this.name} | game claim success | got=${point} | remainTicket=${gameTicket--} | sleep=${s.duration}`);
+              await s.invoke();
+            })
+            .catch((err) => {
+              console.log(`! ${this.name} | game claim failed | error=${err}`);
+            })
+          }
+        } catch (err) {
+          console.log(`! ${this.name} | failed requesting game passess | error=${err}`);
+        }
       }
 
       if (now > this.__farm_time.end) {
         try {
           const { balance } = await this.ClaimFarming();
           const sleep = randsleep(5, 15);
-          console.log(`; ${this.name} | claim success | balance=${balance} | sleep=${sleep.duration}`);
+          console.log(`; ${this.name} | farming claim success | balance=${balance} | sleep=${sleep.duration}`);
           await sleep.invoke();
 
           await this.StartFarming().then(async (v) => {
@@ -405,7 +458,7 @@ export default class Blum extends EventEmitter {
             console.log(`! ${this.name} | start farming failed | error=${err}`);
           });
         } catch (err) {
-          console.log(`! ${this.name} | claim failed | error=${err}`);
+          console.log(`! ${this.name} | farming claim failed | error=${err}`);
         }
       }
 
