@@ -151,15 +151,7 @@ export default class Blum extends EventEmitter {
           fromBotMenu: false,
           url: 'https://telegram.blum.codes/'
         })
-      ).catch(async () => {
-        await this.tg.destroy();
-      });
-      /**
-       * there's an bug using .disconnect().
-       * calling .disconnect() not fully unregistering gramjs internal _updateLoop
-       * more info: https://github.com/gram-js/gramjs/issues/615
-       */
-      await this.tg.destroy();
+      )
 
       return decodeURIComponent(
         decodeURIComponent(
@@ -170,6 +162,13 @@ export default class Blum extends EventEmitter {
       console.log(`Blum::GetWebAppData:`, err)
 
       return null
+    } finally {
+      /**
+       * there's an bug using .disconnect().
+       * calling .disconnect() not fully unregistering gramjs internal _updateLoop
+       * more info: https://github.com/gram-js/gramjs/issues/615
+       */
+      await this.tg.destroy();
     }
   }
 
