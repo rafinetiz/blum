@@ -1,5 +1,6 @@
 import got from 'got';
 import EventEmitter from 'node:events';
+import logger from './logger.js';
 import { Api } from 'telegram';
 import { randsleep, sleep, randomint } from './func.js';
 import dayjs from 'dayjs';
@@ -377,12 +378,12 @@ export default class Blum extends EventEmitter {
         await this.Login();
 
         const sleep = randsleep(5,15);
-        console.log(`; ${this.name} | BLUM LOGIN SUCCESS | sleep=${sleep.duration}s`);
+        logger.info(`${this.name} | BLUM LOGIN SUCCESS | sleep=${sleep.duration}s`);
         await sleep.invoke();
       } catch (error) {
-        console.log(`! ${this.name} | BLUM LOGIN FAILED | error=${error.message}`);
+        logger.error(`${this.name} | BLUM LOGIN FAILED | error=${error.message}`);
         if (error.code === 'ERR_RES_NON200') {
-          console.log(`! status=${error.statusCode} | body=${error.body}`);
+          logger.error(`status=${error.statusCode} | body=${error.body}`);
         }
       }
     }
@@ -393,11 +394,11 @@ export default class Blum extends EventEmitter {
         end: v.endTime
       }
 
-      console.log(`; ${this.name} | balance=${v.balance} | gameTicket=${v.gameTicket} | NextClaimTime=${Math.max(0, (v.endTime - Date.now()) / 1000)}s`);
+      logger.info(`${this.name} | balance=${v.balance} | gameTicket=${v.gameTicket} | NextClaimTime=${Math.max(0, (v.endTime - Date.now()) / 1000)}s`);
     });
 
     const s = randsleep(3, 5);
-    console.log(`; ${this.name} | starting | sleep=${s.duration}`);
+    logger.info(`${this.name} | starting | sleep=${s.duration}`);
     await s.invoke();
 
     while (true) {
@@ -407,7 +408,7 @@ export default class Blum extends EventEmitter {
         .then(async () => {
           this.__next_claim_time = dayjs().add(1, 'day').valueOf();
           const sleep = randsleep(5, 15);
-          console.log(`; ${this.name} | daily claim success | sleep=${sleep.duration}s`);
+          logger.info(`${this.name} | daily claim success | sleep=${sleep.duration}s`);
           await sleep.invoke();
         })
         .catch((err) => {
@@ -415,30 +416,30 @@ export default class Blum extends EventEmitter {
             this.__next_claim_time = dayjs().add(1, 'day').valueOf();
           }
           
-          console.log(`! ${this.name} | daily claim failed | error=${err}`);
+          logger.error(`${this.name} | daily claim failed | error=${err}`);
         })
   
         try {
-          console.log(`; ${this.name} | checking game daily passes`);
+          logger.info(`${this.name} | checking game daily passes`);
           let { gameTicket } = await this.GetBalance();
           const a = randsleep(2, 5);
-          console.log(`; ${this.name} | daily game passes | gameTicket=${gameTicket} | sleep=${a.duration}`);
+          logger.info(`${this.name} | daily game passes | gameTicket=${gameTicket} | sleep=${a.duration}s`);
           await a.invoke();
           
           for (let i = 0; i < gameTicket; i++) {
-            console.log(`; ${this.name} | claiming game ticket ${i} | sleep=~40s`);
+            logger.info(`${this.name} | claiming game ticket ${i} | sleep=~40s`);
             await this.PlayGame()
             .then(async (point) => {
               const s = randsleep(5, 8);
-              console.log(`; ${this.name} | game claim success | got=${point} | remainTicket=${gameTicket--} | sleep=${s.duration}`);
+              logger.info(`${this.name} | game claim success | got=${point} | remainTicket=${gameTicket--} | sleep=${s.duration}s`);
               await s.invoke();
             })
             .catch((err) => {
-              console.log(`! ${this.name} | game claim failed | error=${err}`);
-            })
+              logger.error(`${this.name} | game claim failed | error=${err}`);
+            });
           }
         } catch (err) {
-          console.log(`! ${this.name} | failed requesting game passess | error=${err}`);
+          logger.error(`${this.name} | failed requesting game passess | error=${err}`);
         }
       }
 
@@ -446,7 +447,7 @@ export default class Blum extends EventEmitter {
         try {
           const { balance } = await this.ClaimFarming();
           const sleep = randsleep(5, 15);
-          console.log(`; ${this.name} | farming claim success | balance=${balance} | sleep=${sleep.duration}`);
+          logger.info(`${this.name} | farming claim success | balance=${balance} | sleep=${sleep.duration}s`);
           await sleep.invoke();
 
           await this.StartFarming().then(async (v) => {
@@ -455,13 +456,13 @@ export default class Blum extends EventEmitter {
               end: v.endTime
             }
             const sleep = randsleep(5, 15);
-            console.log(`; ${this.name} | start farming success | balance=${balance} | nextclaim=${(v.endTime - Date.now()) / 1000} | sleep=${sleep.duration}`);
+            logger.info(`${this.name} | start farming success | balance=${balance} | nextclaim=${(v.endTime - Date.now()) / 1000}s | sleep=${sleep.duration}s`);
             await sleep.invoke();
           }).catch((err) => {
-            console.log(`! ${this.name} | start farming failed | error=${err}`);
+            logger.error(`${this.name} | start farming failed | error=${err}`);
           });
         } catch (err) {
-          console.log(`! ${this.name} | farming claim failed | error=${err}`);
+          logger.error(`${this.name} | farming claim failed | error=${err}`);
         }
       }
 
