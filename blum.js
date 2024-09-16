@@ -187,13 +187,11 @@ export default class Blum extends EventEmitter {
     });
 
     if (!response.ok) {
-      const err = new Error('Login::response return non-200 code');
-      err.code = 'ERR_RES_NON200';
-      err.statusCode = response.statusCode;
+      const err = new Error('blum login failed', {
+        cause: response
+      });
 
-      if (response.body) {
-        err.body = JSON.stringify(response.body);
-      }
+      err.code = 'BLUM_LOGIN_ERR';
 
       throw err;
     }
