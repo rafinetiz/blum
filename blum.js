@@ -288,11 +288,18 @@ export default class Blum extends EventEmitter {
       responseType: 'json'
     });
 
-    if (!response.ok && response.body) {
-      return Promise.reject(response.body.message);
-    } else if (!response.ok) {
-      console.error(response);
-      return Promise.reject('unknown error');
+    if (!response.ok && response.body.message == 'same day') {
+      return true;
+    }
+
+    if (!response.ok) {
+      const error = new Error('daily claim failed', {
+        cause: response
+      });
+
+      error.code = 'BLUM_DAILYCLAIM_ERR';
+
+      throw new Error;
     }
 
     return true;
