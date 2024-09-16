@@ -368,20 +368,17 @@ export default class Blum extends EventEmitter {
   }
 
   async Start() {
-    if (!this.IsTokenValid()) {
-      try {
-        await this.Login();
+    const login = await this.Login().catch((err) => {
+      logger.error(`${this.name} | ${err.message} | ${err.code} - ${JSON.stringify(err.cause, null, 2)}`);
+      return false;
+    });
 
-        const sleep = randsleep(5,15);
-        logger.info(`${this.name} | BLUM LOGIN SUCCESS | sleep=${sleep.duration}s`);
-        await sleep.invoke();
-      } catch (error) {
-        logger.error(`${this.name} | BLUM LOGIN FAILED | error=${error.message}`);
-        if (error.code === 'ERR_RES_NON200') {
-          logger.error(`status=${error.statusCode} | body=${error.body}`);
-        }
-      }
+    if (!login) {
+      return;
     }
+
+    logger.info(`${this.name} | blum login success | sleep=5s`);
+    await sleep(5000);
 
     await this.GetBalance().then(async v => {
       this.__farm_time = {
@@ -392,9 +389,8 @@ export default class Blum extends EventEmitter {
       logger.info(`${this.name} | balance=${v.balance} | gameTicket=${v.gameTicket} | NextClaimTime=${Math.max(0, (v.endTime - Date.now()) / 1000)}s`);
     });
 
-    const s = randsleep(3, 5);
-    logger.info(`${this.name} | starting | sleep=${s.duration}`);
-    await s.invoke();
+    logger.info(`${this.name} | starting | sleep=5s`);
+    await sleep(5000);
 
     while (true) {
       const now = Date.now();
