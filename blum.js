@@ -20,7 +20,7 @@ export default class Blum extends EventEmitter {
 
     /** @type {import('telegram').TelegramClient} */
     this.tg = tg;
-    
+
     /**
      * @type {{
      *  access: string;
@@ -123,7 +123,7 @@ export default class Blum extends EventEmitter {
       const token = JSON.parse(
         Buffer.from(tokenstr.split('.')[1], 'base64').toString()
       );
-  
+
       if (Date.now() / 1000 > token.exp) {
         return false;
       }
@@ -158,7 +158,7 @@ export default class Blum extends EventEmitter {
           WebViewUrlResult.url.substring(42, WebViewUrlResult.url.indexOf('&', 42))
         )
       );
-    } catch(err) {
+    } catch (err) {
       const error = new Error('get webappdata failed', {
         cause: err
       });
@@ -240,11 +240,11 @@ export default class Blum extends EventEmitter {
       const token = JSON.parse(
         Buffer.from(this.token.access.split('.')[1], 'base64').toString()
       );
-  
+
       if (Date.now() / 1000 > token.exp) {
         return false;
       }
-      
+
       return true;
     } catch (err) {
       return false;
@@ -289,7 +289,7 @@ export default class Blum extends EventEmitter {
     });
 
     if (!response.ok && response.body.message == 'same day') {
-      return true;
+      return false;
     }
 
     if (!response.ok) {
@@ -310,11 +310,8 @@ export default class Blum extends EventEmitter {
       responseType: 'json'
     });
 
-    if (!response.ok && response.body) {
+    if (!response.ok && r) {
       return Promise.reject(response.body.message);
-    } else if (!response.ok) {
-      console.error(response);
-      return Promise.reject('unknown error');
     }
 
     return {
@@ -333,7 +330,13 @@ export default class Blum extends EventEmitter {
     });
 
     if (!startGameResp.ok) {
-      return Promise.reject(`start game failed. ${JSON.stringify(startGameResp.body)}`);
+      const error = new Error('game start failed', {
+        cause: startGameResp
+      });
+
+      error.code = 'BLUM_GAMESTART_ERR';
+
+      throw error;
     }
 
     const gameId = startGameResp.body.gameId;
@@ -348,7 +351,13 @@ export default class Blum extends EventEmitter {
     });
 
     if (!claimGame.ok) {
-      return Promise.reject(`game claim failed. ${claimGame.body}`);
+      const error = new Error('game claim failed', {
+        cause: claimGame
+      });
+
+      error.code = 'BLUM_GAMECLAIM_ERR';
+
+      throw error;
     }
 
     return points;
@@ -359,18 +368,20 @@ export default class Blum extends EventEmitter {
       responseType: 'json'
     });
 
-    if (!response.ok && response.body) {
-      return Promise.reject(response.body.message);
-    } else if (!response.ok) {
-      console.error(response);
-      return Promise.reject('unknown error');
+    if (!response.ok) {
+      const error = new Error('start farming failed', {
+        cause: response
+      });
+
+      error.code = 'BLUM_STARTFARM_ERR';
+
+      throw error;
     }
 
-    const body = response.body;
     return {
-      balance: body.balance,
-      startTime: body.startTime,
-      endTime: body.endTime
+      balance: response.body.balance,
+      startTime: response.body.startTime,
+      endTime: response.body.endTime
     }
   }
 
@@ -383,6 +394,31 @@ export default class Blum extends EventEmitter {
     if (!login) {
       return;
     }
+
+    this.on('blum:ticketAvailable', async (ticketCount) => {
+      let j = ticketCount;
+      for (let i = 0; i < ticketCount; i++) {
+        logger.info(`${this.name} | claiming game ticket ${i}`);
+        await this.PlayGame((result) => {
+          logger.info(`${this.name} | game claim success | got=${result} | remainTicket=${j--}`);
+        }).catch(err => {
+          logger.error(`${this.name} | ${err.message} | error=${JSON.stringify(err.cause, null, 2)}`);
+        });
+      }
+    });
+
+    this.on('blum:farmingReady', async () => {
+      await this.StartFarming().then((v) => {
+        this.__farm_time = {
+          start: v.startTime,
+          end: v.endTime
+        }
+
+        logger.info(`${this.name} | start farming success | balance=${v.balance} | nextclaim=${(v.endTime - Date.now()) / 1000}s`);
+      }).catch((err) => {
+        logger.error(`${this.name} | ${err.message} | error=${JSON.stringify(err.cause, null, 2)}`);
+      });
+    });
 
     logger.info(`${this.name} | blum login success | sleep=5s`);
     await sleep(5000);
@@ -403,65 +439,42 @@ export default class Blum extends EventEmitter {
       const now = Date.now();
       if (now > this.__next_claim_time) {
         await this.ClaimDaily()
-        .then(async () => {
-          this.__next_claim_time = dayjs().add(1, 'day').valueOf();
-          const sleep = randsleep(5, 15);
-          logger.info(`${this.name} | daily claim success | sleep=${sleep.duration}s`);
-          await sleep.invoke();
-        })
-        .catch((err) => {
-          if (err == 'same day') {
+          .then(async (result) => {
+            if (result) {
+              logger.info(`${this.name} | daily claim=ok`);
+            } else {
+              logger.info(`${this.name} | daily claim=same day`);
+            }
+
             this.__next_claim_time = dayjs().add(1, 'day').valueOf();
+          })
+          .catch((err) => {
+            logger.error(`${this.name} | ${err.message} | error=${JSON.stringify(err.cause, null, 2)}`);
+          });
+
+        await randsleep(5, 10).invoke();
+
+        logger.info(`${this.name} | checking game daily passes`);
+        await this.GetBalance().then((result) => {
+          logger.info(`${this.name} | daily game pass result | gameTicket=${result.gameTicket}`);
+
+          if (result.gameTicket > 0) {
+            this.emit('blum:ticketAvailable', result.gameTicket);
           }
-          
-          logger.error(`${this.name} | daily claim failed | error=${err}`);
-        })
-  
-        try {
-          logger.info(`${this.name} | checking game daily passes`);
-          let { gameTicket } = await this.GetBalance();
-          const a = randsleep(2, 5);
-          logger.info(`${this.name} | daily game passes | gameTicket=${gameTicket} | sleep=${a.duration}s`);
-          await a.invoke();
-          
-          for (let i = 0; i < gameTicket; i++) {
-            logger.info(`${this.name} | claiming game ticket ${i} | sleep=~40s`);
-            await this.PlayGame()
-            .then(async (point) => {
-              const s = randsleep(5, 8);
-              logger.info(`${this.name} | game claim success | got=${point} | remainTicket=${gameTicket--} | sleep=${s.duration}s`);
-              await s.invoke();
-            })
-            .catch((err) => {
-              logger.error(`${this.name} | game claim failed | error=${err}`);
-            });
-          }
-        } catch (err) {
-          logger.error(`${this.name} | failed requesting game passess | error=${err}`);
-        }
+        }).catch(err => {
+          logger.error(`${this.name} | ${err.message} | error=${JSON.stringify(err.cause, null, 2)}`);
+        });
       }
 
       if (now > this.__farm_time.end) {
-        try {
-          const { balance } = await this.ClaimFarming();
-          const sleep = randsleep(5, 15);
-          logger.info(`${this.name} | farming claim success | balance=${balance} | sleep=${sleep.duration}s`);
-          await sleep.invoke();
+        await this.ClaimFarming().then(async (result) => {
+          logger.info(`${this.name} | farming claim success | balance=${result.balance}`);
+          this.emit('blum:farmingReady');
+        }).catch((err) => {
+          logger.error(`${this.name} | ${err.message} | error=${JSON.stringify(err.cause, null, 2)}`);
+        });
 
-          await this.StartFarming().then(async (v) => {
-            this.__farm_time = {
-              start: v.startTime,
-              end: v.endTime
-            }
-            const sleep = randsleep(5, 15);
-            logger.info(`${this.name} | start farming success | balance=${balance} | nextclaim=${(v.endTime - Date.now()) / 1000}s | sleep=${sleep.duration}s`);
-            await sleep.invoke();
-          }).catch((err) => {
-            logger.error(`${this.name} | start farming failed | error=${err}`);
-          });
-        } catch (err) {
-          logger.error(`${this.name} | farming claim failed | error=${err}`);
-        }
+        await randsleep(5, 10).invoke();
       }
 
       await sleep(60000); // 1 minute
