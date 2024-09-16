@@ -159,9 +159,13 @@ export default class Blum extends EventEmitter {
         )
       );
     } catch(err) {
-      console.log(`Blum::GetWebAppData:`, err)
+      const error = new Error('get webappdata failed', {
+        cause: err
+      });
 
-      return null
+      error.code = 'BLUM_GETWEBAPP_ERR';
+
+      throw error;
     } finally {
       /**
        * there's an bug using .disconnect().
@@ -174,12 +178,6 @@ export default class Blum extends EventEmitter {
 
   async Login() {
     const webappdata = await this.GetWebAppData();
-
-    if (webappdata === null) {
-      const error = new Error('Login::webappdata is null');
-      error.code = "ERR_WEBAPP_NULL";
-      throw error;
-    }
 
     const response = await this.http.userdomain.post('api/v1/auth/provider/PROVIDER_TELEGRAM_MINI_APP', {
       json: {
