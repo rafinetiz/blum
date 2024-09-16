@@ -1,7 +1,7 @@
 import got from 'got';
 import EventEmitter from 'node:events';
 import { Api } from 'telegram';
-import { randsleep, sleep } from './func.js';
+import { randsleep, sleep, randomint } from './func.js';
 import dayjs from 'dayjs';
 
 const BLUMBOT_ID = 'BlumCryptoBot';
@@ -334,7 +334,7 @@ export default class Blum extends EventEmitter {
     }
 
     const gameId = startGameResp.body.gameId;
-    const points = [190, 200];
+    const points = randomint(190, 200);
     await sleep(30000 + 5000 + 5000 + 5000 + 5000);
 
     const claimGame = await this.http.gamedomain.post('api/v1/game/claim', {
