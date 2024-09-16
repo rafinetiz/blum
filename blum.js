@@ -405,16 +405,19 @@ export default class Blum extends EventEmitter {
       if (now > this.__next_claim_time) {
         await this.ClaimDaily()
         .then(async () => {
+          this.__next_claim_time = dayjs().add(1, 'day').valueOf();
           const sleep = randsleep(5, 15);
           console.log(`; ${this.name} | daily claim success | sleep=${sleep.duration}s`);
           await sleep.invoke();
         })
         .catch((err) => {
+          if (err == 'same day') {
+            this.__next_claim_time = dayjs().add(1, 'day').valueOf();
+          }
+          
           console.log(`! ${this.name} | daily claim failed | error=${err}`);
-        });
+        })
   
-        this.__next_claim_time = dayjs().add(1, 'day').valueOf();
-
         try {
           console.log(`; ${this.name} | checking game daily passes`);
           let { gameTicket } = await this.GetBalance();
