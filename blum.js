@@ -310,8 +310,14 @@ export default class Blum extends EventEmitter {
       responseType: 'json'
     });
 
-    if (!response.ok && r) {
-      return Promise.reject(response.body.message);
+    if (!response.ok) {
+      const err = new Error('farming claim failed', {
+        cause: response
+      });
+
+      err.code = 'BLUM_FARMCLAIM_ERR';
+
+      throw err;
     }
 
     return {
