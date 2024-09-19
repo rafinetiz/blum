@@ -188,7 +188,7 @@ export default class Blum extends EventEmitter {
 
     if (!response.ok) {
       const err = new Error('blum login failed', {
-        cause: response
+        cause: response.body
       });
 
       err.code = 'BLUM_LOGIN_ERR';
@@ -294,12 +294,12 @@ export default class Blum extends EventEmitter {
 
     if (!response.ok) {
       const error = new Error('daily claim failed', {
-        cause: response
+        cause: response.body
       });
 
       error.code = 'BLUM_DAILYCLAIM_ERR';
 
-      throw new Error;
+      throw error;
     }
 
     return true;
@@ -312,7 +312,7 @@ export default class Blum extends EventEmitter {
 
     if (!response.ok) {
       const err = new Error('farming claim failed', {
-        cause: response
+        cause: response.body
       });
 
       err.code = 'BLUM_FARMCLAIM_ERR';
@@ -337,7 +337,7 @@ export default class Blum extends EventEmitter {
 
     if (!startGameResp.ok) {
       const error = new Error('game start failed', {
-        cause: startGameResp
+        cause: startGameResp.body
       });
 
       error.code = 'BLUM_GAMESTART_ERR';
@@ -358,7 +358,7 @@ export default class Blum extends EventEmitter {
 
     if (!claimGame.ok) {
       const error = new Error('game claim failed', {
-        cause: claimGame
+        cause: claimGame.body
       });
 
       error.code = 'BLUM_GAMECLAIM_ERR';
@@ -376,7 +376,7 @@ export default class Blum extends EventEmitter {
 
     if (!response.ok) {
       const error = new Error('start farming failed', {
-        cause: response
+        cause: response.body
       });
 
       error.code = 'BLUM_STARTFARM_ERR';
