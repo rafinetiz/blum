@@ -284,17 +284,21 @@ export default class Blum extends EventEmitter {
   }
 
   async ClaimDaily() {
-    const response = await this.http.gamedomain.post('api/v1/daily-reward?offset=-180', {
-      responseType: 'json'
-    });
+    const response = await this.http.gamedomain.post('api/v1/daily-reward?offset=-180');
 
-    if (!response.ok && response.body.message == 'same day') {
+    if (response.ok && response.body === 'OK') {
+      return true;
+    }
+
+    const body = JSON.parse(response.body);
+
+    if (body.message == 'same day') {
       return false;
     }
 
     if (!response.ok) {
       const error = new Error('daily claim failed', {
-        cause: response.body
+        cause: body
       });
 
       error.code = 'BLUM_DAILYCLAIM_ERR';
@@ -302,7 +306,7 @@ export default class Blum extends EventEmitter {
       throw error;
     }
 
-    return true;
+    return false;
   }
 
   async ClaimFarming() {
