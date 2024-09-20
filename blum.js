@@ -409,7 +409,7 @@ export default class Blum extends EventEmitter {
       let j = ticketCount;
       for (let i = 0; i < ticketCount; i++) {
         logger.info(`${this.name} | claiming game ticket ${i}`);
-        await this.PlayGame((result) => {
+        await this.PlayGame().then((result) => {
           logger.info(`${this.name} | game claim success | got=${result} | remainTicket=${j--}`);
         }).catch(err => {
           logger.error(`${this.name} | ${err.message} | error=${JSON.stringify(err.cause, null, 2)}`);
