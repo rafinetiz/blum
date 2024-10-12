@@ -462,6 +462,7 @@ export default class Blum extends EventEmitter {
             logger.error(`${this.name} | ${err.message} | error=${JSON.stringify(err.cause, null, 2)}`);
           });
 
+        /*
         await randsleep(5, 10).invoke();
 
         logger.info(`${this.name} | checking game daily passes`);
@@ -474,6 +475,7 @@ export default class Blum extends EventEmitter {
         }).catch(err => {
           logger.error(`${this.name} | ${err.message} | error=${JSON.stringify(err.cause, null, 2)}`);
         });
+        */
       }
 
       if (now > this.__farm_time.end) {
