@@ -1,8 +1,10 @@
 import got from 'got';
+import { default as status_formatter } from 'statuses';
+
 import EventEmitter from 'node:events';
 import logger from './logger.js';
 import { Api } from 'telegram';
-import { randsleep, sleep, randomint } from './func.js';
+import { randsleep, sleep, randomint } from './utils.js';
 import dayjs from 'dayjs';
 
 const BLUMBOT_ID = 'BlumCryptoBot';
@@ -12,7 +14,7 @@ export default class Blum extends EventEmitter {
    * @param {string} name
    * @param {import('telegram').TelegramClient} tg 
    */
-  constructor(name, tg) {
+  constructor(name, tg, game_worker) {
     super();
 
     /** @type {string} */
@@ -40,6 +42,8 @@ export default class Blum extends EventEmitter {
     this.__refresh_flag = false;
     /** @type {number} */
     this.__next_claim_time = 0;
+    /** @type {Worker} */
+    this.__game_worker = game_worker;
 
     const base = got.extend({
       http2: true,
@@ -124,7 +128,7 @@ export default class Blum extends EventEmitter {
         Buffer.from(tokenstr.split('.')[1], 'base64').toString()
       );
 
-      if (Date.now() / 1000 > token.exp) {
+      if ((Date.now() / 1000) > token.exp) {
         return false;
       }
 
@@ -138,74 +142,72 @@ export default class Blum extends EventEmitter {
     this.token = t;
   }
   /**
-   * @returns {Promise<string>} telegram webappdata
+   * @returns {Promise<URLSearchParams>} telegram webappdata
    */
   async GetWebAppData() {
-    try {
-      await this.tg.connect();
-      const WebViewUrlResult = await this.tg.invoke(
-        new Api.messages.RequestWebView({
-          peer: await this.tg.getPeerId(BLUMBOT_ID),
-          bot: await this.tg.getPeerId(BLUMBOT_ID),
-          platform: 'android',
-          fromBotMenu: false,
-          url: 'https://telegram.blum.codes/'
-        })
-      )
+    await this.tg.connect();
+    const WebViewUrlResult = await this.tg.invoke(
+      new Api.messages.RequestWebView({
+        peer: await this.tg.getPeerId(BLUMBOT_ID),
+        bot: await this.tg.getPeerId(BLUMBOT_ID),
+        platform: 'android',
+        fromBotMenu: false,
+        url: 'https://telegram.blum.codes/'
+      })
+    ).finally(() => {
+      this.tg.destroy();
+    });
 
-      return decodeURIComponent(
-        decodeURIComponent(
-          WebViewUrlResult.url.substring(42, WebViewUrlResult.url.indexOf('&', 42))
-        )
-      );
-    } catch (err) {
-      const error = new Error('get webappdata failed', {
-        cause: err
-      });
+    const params = new URLSearchParams(
+      WebViewUrlResult.url.substring(WebViewUrlResult.url.indexOf('#'))
+    );
 
-      error.code = 'BLUM_GETWEBAPP_ERR';
+    const webappdata = params.get('#tgWebAppData');
 
-      throw error;
-    } finally {
-      /**
-       * there's an bug using .disconnect().
-       * calling .disconnect() not fully unregistering gramjs internal _updateLoop
-       * more info: https://github.com/gram-js/gramjs/issues/615
-       */
-      await this.tg.destroy();
-    }
+    return new URLSearchParams(webappdata);
   }
 
+  /**
+   * @returns {Promise<{
+   *  access: string;
+   *  refresh: string;
+   * }>}
+   */
   async Login() {
     const webappdata = await this.GetWebAppData();
-
     const response = await this.http.userdomain.post('api/v1/auth/provider/PROVIDER_TELEGRAM_MINI_APP', {
       json: {
-        'query': webappdata
+        'query': webappdata.toString()
       },
       responseType: 'json'
     });
 
     if (!response.ok) {
-      const err = new Error('blum login failed', {
-        cause: response.body
+      return Promise.reject({
+        code: 'NON_2XX_RESPONSE_ERR',
+        status: `${response.statusCode} ${status_formatter(response.statusCode)}`,
+        url: response.requestUrl.toString(),
+        body: JSON.stringify(response.body),
+        api_error: true
       });
-
-      err.code = 'BLUM_LOGIN_ERR';
-
-      throw err;
     }
+
+    const { token } = response.body;
 
     this.token = {
-      access: response.body.token.access,
-      refresh: response.body.token.refresh
+      access: token.access,
+      refresh: token.refresh
     }
 
-    this.emit('blum:token', response.body.token);
+    this.emit('blum:token', token);
 
-    return true;
+    return token;
   }
 
+  /**
+   * 
+   * @returns {Promise<boolean>}
+   */
   async RefreshToken() {
     const response = await this.http.userdomain.post('api/v1/auth/refresh', {
       json: {
@@ -214,18 +216,24 @@ export default class Blum extends EventEmitter {
       responseType: 'json'
     });
 
-    if (response.ok) {
-      const body = response.body;
-
-      this.token = {
-        access: body.access,
-        refresh: body.refresh
-      }
-
-      return true;
-    } else {
-      return Promise.reject(JSON.stringify(response.body))
+    if (!response.ok) {
+      return Promise.reject({
+        code: 'NON_2XX_RESPONSE_ERR',
+        status: `${response.statusCode} ${status_formatter(response.statusCode)}`,
+        url: response.requestUrl.toString(),
+        body: JSON.stringify(response.body),
+        api_error: true
+      });
     }
+
+    const { access: accessToken, refresh: refreshToken } = response.body;
+
+    this.token = {
+      access: accessToken,
+      refresh: refreshToken
+    }
+
+    return true;
   }
 
   /**
@@ -262,9 +270,10 @@ export default class Blum extends EventEmitter {
    * @returns {Promise<{
    *  balance: string;
    *  gameTicket: number;
-   *  startTime: number;
-   *  endTime: number;
-   *  currentTime: number;
+   *  farming: {
+   *   startTime: number;
+   *   endTime: number;
+   *  }
    * }>}
    */
   async GetBalance() {
@@ -272,41 +281,61 @@ export default class Blum extends EventEmitter {
       responseType: 'json'
     });
 
-    const body = response.body;
+    if (!response.ok) {
+      return Promise.reject({
+        code: 'NON_2XX_RESPONSE_ERR',
+        status: `${response.statusCode} ${status_formatter(response.statusCode)}`,
+        url: response.requestUrl.toString(),
+        body: JSON.stringify(response.body),
+        api_error: true
+      });
+    }
+
+    /**
+     * {
+     *  availableBalance: string; // current balance
+     *  playPasses: number; // ticket to play game
+     *  isFastFarmingEnabled: boolean;
+     *  timestamp: number; // current timestamp? in milliseconds
+     *  farming: { // farming status
+     *    startTime: number; // farming start time in milliseconds
+     *    endTime: number; // time which farming can be claimed in milliseconds
+     *    earningsRate: string;
+     *    balance: string; // current balance farming has
+     *  }
+     * }
+     */
+    const {
+      availableBalance: balance,
+      playPasses: gameTicket,
+      farming
+    } = response.body;
 
     return {
-      balance: body.availableBalance,
-      gameTicket: body.playPasses,
-      startTime: body.farming.startTime,
-      endTime: body.farming.endTime,
-      currentTime: body.farming.timestamp
+      balance,
+      gameTicket,
+      farming
     }
   }
 
+  /**
+   * 
+   * @returns {Promise<boolean>}
+   */
   async ClaimDaily() {
-    const response = await this.http.gamedomain.post('api/v1/daily-reward?offset=-180');
+    const response = await this.http.gamedomain.post('api/v1/daily-reward?offset=' + new Date().getTimezoneOffset());
 
-    if (response.ok && response.body === 'OK') {
+    if (response.ok) {
       return true;
     }
 
-    const body = JSON.parse(response.body);
-
-    if (body.message == 'same day') {
-      return false;
-    }
-
-    if (!response.ok) {
-      const error = new Error('daily claim failed', {
-        cause: body
-      });
-
-      error.code = 'BLUM_DAILYCLAIM_ERR';
-
-      throw error;
-    }
-
-    return false;
+    return Promise.reject({
+      code: 'NON_2XX_RESPONSE_ERR',
+      status: `${response.statusCode} ${status_formatter(response.statusCode)}`,
+      url: response.requestUrl.toString(),
+      body: response.body,
+      api_error: true
+    });
   }
 
   async ClaimFarming() {
@@ -315,15 +344,16 @@ export default class Blum extends EventEmitter {
     });
 
     if (!response.ok) {
-      const err = new Error('farming claim failed', {
-        cause: response.body
+      return Promise.reject({
+        code: 'NON_2XX_RESPONSE_ERR',
+        status: `${response.statusCode} ${status_formatter(response.statusCode)}`,
+        url: response.requestUrl.toString(),
+        body: JSON.stringify(response.body),
+        api_error: true
       });
-
-      err.code = 'BLUM_FARMCLAIM_ERR';
-
-      throw err;
     }
 
+    // TODO: correct return values
     return {
       balance: response.body.availableBalance
     };
@@ -335,63 +365,42 @@ export default class Blum extends EventEmitter {
    * @returns {Promise<number>} the points gained
    */
   async PlayGame() {
-    const startGameResp = await this.http.gamedomain.post('api/v1/game/play', {
+    const start_game = await this.http.gamedomain.post('api/v1/game/play', {
       responseType: 'json'
     });
 
-    if (!startGameResp.ok) {
-      const error = new Error('game start failed', {
-        cause: startGameResp.body
-      });
-
-      error.code = 'BLUM_GAMESTART_ERR';
-
-      throw error;
-    }
-
-    const gameId = startGameResp.body.gameId;
-    const points = randomint(190, 200);
-    await sleep(30000 + 5000 + 5000 + 5000 + 5000);
-
-    const claimGame = await this.http.gamedomain.post('api/v1/game/claim', {
-      json: {
-        gameId,
-        points
-      }
-    });
-
-    if (!claimGame.ok) {
-      const error = new Error('game claim failed', {
-        cause: claimGame.body
-      });
-
-      error.code = 'BLUM_GAMECLAIM_ERR';
-
-      throw error;
-    }
-
-    return points;
+    
   }
 
+  /**
+   * 
+   * @returns {Promise<{
+   *  balance: string;
+   *  startTime: number;
+   *  endTime: number;
+   * }>}
+   */
   async StartFarming() {
     const response = await this.http.gamedomain.post('api/v1/farming/start', {
       responseType: 'json'
     });
 
     if (!response.ok) {
-      const error = new Error('start farming failed', {
-        cause: response.body
+      return Promise.reject({
+        code: 'NON_2XX_RESPONSE_ERR',
+        status: `${response.statusCode} ${status_formatter(response.statusCode)}`,
+        url: response.requestUrl.toString(),
+        body: JSON.stringify(response.body),
+        api_error: true
       });
-
-      error.code = 'BLUM_STARTFARM_ERR';
-
-      throw error;
     }
 
+    const { balance, startTime, endTime } = response.body;
+
     return {
-      balance: response.body.balance,
-      startTime: response.body.startTime,
-      endTime: response.body.endTime
+      balance,
+      startTime,
+      endTime
     }
   }
 

@@ -497,18 +497,28 @@ ${e.stack}`
     const { id: n, method: t, payload: r } = e;
     switch (t) {
       case "proof": {
-        const o = F(r);
-        return parentPort.postMessage({ id: n, ...o });
+        try {
+          const o = F(r);
+          parentPort.postMessage({ id: n, ...o });
+        } catch (err) {
+          parentPort.postMessage({id: n, error: err.message});
+        }
+
+        break;
       }
       case "pack": {
-        const o = B(r.gameId, r.challenge, r.earnedAssets);
-        return parentPort.postMessage({ id: n, hash: o });
+        try {
+          const o = B(r.gameId, r.challenge, r.earnedAssets);
+          parentPort.postMessage({ id: n, hash: o });
+        } catch (err) {
+          parentPort.postMessage({id: n, error: err.message});
+        }
+        
+        break;
       }
       default: {
-        const o = t;
-        throw new Error(`Unknown method: ${o}`);
+        parentPort.postMessage({id: n, error: `Unknown method ${t}`});
       }
     }
   });
-
 })();

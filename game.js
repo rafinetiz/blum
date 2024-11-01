@@ -6,16 +6,11 @@ import { Worker } from 'node:worker_threads';
 import { Logger, TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import Blum from './blum.js';
-import { sleep } from './func.js';
+import { randomint, sleep, uuidv4 } from './utils.js';
 
 const APP_ID = process.env.APP_ID;
 const APP_HASH = process.env.APP_HASH;
 const TG_LOGGER = new Logger('none');
-
-const uuidv4 = () => "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, ue => {
-  const Yi = Math.random() * 16 | 0;
-  return (ue === "x" ? Yi : Yi & 3 | 8).toString(16)
-});
 
 async function check_session_exists(phone) {
   try {
@@ -71,14 +66,22 @@ async function awaitWorkerMessage(worker, data) {
   const responses = await blum.http.gamedomain.post('api/v2/game/play').json();
   const { gameId } = responses;
   console.log('[#] Game started:', gameId);
-  console.log('[#] Sleeping 50 seconds before claiming the game');
 
-  await sleep(30000 + 20000); // 50detik
+  const amount = randomint(185, 203);
+  let sleep_time = 30000 + 5000 + (Math.random() > 0.5 ? 5000 : 0);
+
+  if (amount > 195) {
+    sleep_time += 10000;
+  }
+
+  console.log(`[#] Waiting ${sleep_time / 1000} seconds to act as in playing the game`);
+
+  await sleep(sleep_time);
 
   console.log('[#] Trying claiming gameId:', gameId);
   const payload = {
     "CLOVER": {
-      amount: '195'
+      amount: amount.toString()
     }
   }
 
@@ -91,7 +94,7 @@ async function awaitWorkerMessage(worker, data) {
     method: 'proof',
     payload: gameId
   });
-  console.log(`[#] PoW - ${gameId}`);
+  console.log(`[#] PoW     ${gameId}`);
   console.log(`[#] id    : ${pow.id}`);
   console.log(`[#] nonce : ${pow.nonce}`);
   console.log(`[#] hash  : ${pow.hash}`);
@@ -106,9 +109,9 @@ async function awaitWorkerMessage(worker, data) {
       earnedAssets: payload
     }
   });
-  console.log(`[#] Payload - ${gameId}`);
+  console.log(`[#] Payload  ${gameId}`);
   console.log(`[#] id     : ${pow.id}`);
-  console.log(`[#] amount : 195 (random)`);
+  console.log(`[#] amount : ${amount} (random)`);
   console.log(`[#] hash   : ${pack.hash}`);
 
   worker.unref();

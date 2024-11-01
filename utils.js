@@ -29,3 +29,17 @@ export function randsleep(min, max) {
 export async function sleep(duration) {
   return new Promise(resolve => setTimeout(resolve, duration));
 }
+
+/**
+ * Generate random uuid v4
+ * 
+ * @returns {string} uuid
+ */
+export function uuidv4() {
+  const format = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx";
+
+  return format.replace(/[xy]/g, char => {
+    const sym = Math.random() * 16 | 0;
+    return (char === "x" ? sym : sym & 3 | 8).toString(16)
+  });
+}
