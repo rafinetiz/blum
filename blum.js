@@ -74,6 +74,8 @@ export default class Blum extends EventEmitter {
                   this.__refresh_flag = false;
                 });
               }
+
+              options.headers['authorization'] = 'Bearer ' + this.token.access;
             }
           }
         ]
@@ -249,7 +251,7 @@ export default class Blum extends EventEmitter {
         Buffer.from(this.token.access.split('.')[1], 'base64').toString()
       );
 
-      if (Date.now() / 1000 > token.exp) {
+      if ((Date.now() / 1000) > token.exp) {
         return false;
       }
 
