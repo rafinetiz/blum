@@ -29,7 +29,7 @@ export default class Blum extends EventEmitter {
      *  refresh: string
      * }}
      */
-    this.token = undefined;
+    this._token = undefined;
 
     /** @type {number} */
     this.__last_daily_time = 0;
@@ -56,7 +56,7 @@ export default class Blum extends EventEmitter {
             }
 
             if (this.IsTokenValid()) {
-              options.headers['authorization'] = 'Bearer ' + this.token.access;
+              options.headers['authorization'] = 'Bearer ' + this._token.access;
             } else {
               if (this.__refresh_flag) {
                 return Promise.reject('request canceled because token currently being refreshed')
@@ -65,7 +65,7 @@ export default class Blum extends EventEmitter {
               delete options.headers['authorization'];
               this.__refresh_flag = true;
 
-              if (Blum.CheckRefreshToken(this.token.refresh)) {
+              if (Blum.CheckRefreshToken(this._token.refresh)) {
                 await this.RefreshToken().finally(() => {
                   this.__refresh_flag = false;
                 });
@@ -75,7 +75,7 @@ export default class Blum extends EventEmitter {
                 });
               }
 
-              options.headers['authorization'] = 'Bearer ' + this.token.access;
+              options.headers['authorization'] = 'Bearer ' + this._token.access;
             }
           }
         ]
@@ -120,6 +120,10 @@ export default class Blum extends EventEmitter {
     }
   }
 
+  get token() {
+    return this._token;
+  }
+
   /**
    * @param {string} token 
    * @returns {boolean}
@@ -141,7 +145,7 @@ export default class Blum extends EventEmitter {
   }
 
   setToken(t) {
-    this.token = t;
+    this._token = t;
   }
   /**
    * @returns {Promise<URLSearchParams>} telegram webappdata
@@ -196,12 +200,12 @@ export default class Blum extends EventEmitter {
 
     const { token } = response.body;
 
-    this.token = {
+    this._token = {
       access: token.access,
       refresh: token.refresh
     }
 
-    this.emit('blum:token', token);
+    this.emit('blum:login');
 
     return token;
   }
@@ -213,7 +217,7 @@ export default class Blum extends EventEmitter {
   async RefreshToken() {
     const response = await this.http.userdomain.post('api/v1/auth/refresh', {
       json: {
-        'refresh': this.token.refresh
+        'refresh': this._token.refresh
       },
       responseType: 'json'
     });
@@ -230,7 +234,7 @@ export default class Blum extends EventEmitter {
 
     const { access: accessToken, refresh: refreshToken } = response.body;
 
-    this.token = {
+    this._token = {
       access: accessToken,
       refresh: refreshToken
     }
@@ -242,13 +246,13 @@ export default class Blum extends EventEmitter {
    * @returns {boolean}
    */
   IsTokenValid() {
-    if (!this.token) {
+    if (!this._token) {
       return false;
     }
 
     try {
       const token = JSON.parse(
-        Buffer.from(this.token.access.split('.')[1], 'base64').toString()
+        Buffer.from(this._token.access.split('.')[1], 'base64').toString()
       );
 
       if ((Date.now() / 1000) > token.exp) {
@@ -327,8 +331,14 @@ export default class Blum extends EventEmitter {
   async ClaimDaily() {
     const response = await this.http.gamedomain.post('api/v1/daily-reward?offset=' + new Date().getTimezoneOffset());
 
+    this.emit('blum:daily', response.statusCode);
+
     if (response.ok) {
       return true;
+    }
+
+    if (response.statusCode === 400) {
+      return false;
     }
 
     return Promise.reject({
@@ -354,6 +364,8 @@ export default class Blum extends EventEmitter {
         api_error: true
       });
     }
+
+    this.emit('blum:farmClaim', response.body.availableBalance);
 
     // TODO: correct return values
     return {
@@ -397,6 +409,8 @@ export default class Blum extends EventEmitter {
       });
     }
 
+    this.emit('blum:farmStart', response.body);
+
     const { balance, startTime, endTime } = response.body;
 
     return {
@@ -407,100 +421,71 @@ export default class Blum extends EventEmitter {
   }
 
   async Start() {
-    const login = await this.Login().catch((err) => {
-      logger.error(`${this.name} | ${err.message} | ${err.code} - ${JSON.stringify(err.cause, null, 2)}`);
-      return false;
+    this.on('blum:login', async () => {
+      const { balance } = await this.GetBalance();
+
+      logger.info(`${this.name} | blum login success | balance=${balance}`);
     });
 
-    if (!login) {
-      return;
-    }
-
-    this.on('blum:ticketAvailable', async (ticketCount) => {
-      let j = ticketCount;
-      for (let i = 0; i < ticketCount; i++) {
-        logger.info(`${this.name} | claiming game ticket ${i}`);
-        await this.PlayGame().then((result) => {
-          logger.info(`${this.name} | game claim success | got=${result} | remainTicket=${j--}`);
-        }).catch(err => {
-          logger.error(`${this.name} | ${err.message} | error=${JSON.stringify(err.cause, null, 2)}`);
-        });
+    this.on('blum:daily', (status) => {
+      switch (status) {
+        case 200:
+          logger.info(`${this.name} | daily claim success`);
+          break;
+        case 400:
+          logger.info(`${this.name} | daily claim=same day`);
+          break;
       }
     });
 
-    this.on('blum:farmingReady', async () => {
-      await this.StartFarming().then((v) => {
-        this.__farm_time = {
-          start: v.startTime,
-          end: v.endTime
-        }
+    this.on('blum:farmStart', ({ startTime, endTime }) => {
+      logger.info(`${this.name} | farm started, claim on ${new Date(endTime).toLocaleString()}`);
 
-        logger.info(`${this.name} | start farming success | balance=${v.balance} | nextclaim=${(v.endTime - Date.now()) / 1000}s`);
-      }).catch((err) => {
-        logger.error(`${this.name} | ${err.message} | error=${JSON.stringify(err.cause, null, 2)}`);
+      this.__farm_time = {
+        start: startTime,
+        end: endTime
+      }
+    });
+
+    this.on('blum:farmClaim', (balance) => {
+      logger.info(`${this.name} | farm claim success | balance=${balance}`);
+
+      this.StartFarming().catch(err => {
+        logger.error(`${this.name} | start farming failed | code: ${err.code}, reason: ${err.body || err.message}`);
       });
     });
 
-    logger.info(`${this.name} | blum login success | sleep=5s`);
-    await sleep(5000);
-
-    await this.GetBalance().then(async v => {
+    await this.Login();
+    await this.GetBalance().then(({ farming }) => {
       this.__farm_time = {
-        start: v.startTime,
-        end: v.endTime
+        start: farming.startTime,
+        end: farming.endTime
       }
-
-      logger.info(`${this.name} | balance=${v.balance} | gameTicket=${v.gameTicket} | NextClaimTime=${Math.max(0, (v.endTime - Date.now()) / 1000)}s`);
     });
+    await this.ClaimDaily().then((status) => {
+      const now = new Date();
+      now.setDate(now.getDate() + 1);
 
-    logger.info(`${this.name} | starting | sleep=5s`);
-    await sleep(5000);
+      this.__last_daily_time = now.getTime();
+    });
+    
 
     while (true) {
       const now = Date.now();
-      if (now > this.__next_claim_time) {
-        await this.ClaimDaily()
-          .then(async (result) => {
-            if (result) {
-              logger.info(`${this.name} | daily claim=ok`);
-            } else {
-              logger.info(`${this.name} | daily claim=same day`);
-            }
 
-            this.__next_claim_time = dayjs().add(1, 'day').valueOf();
-          })
-          .catch((err) => {
-            logger.error(`${this.name} | ${err.message} | error=${JSON.stringify(err.cause, null, 2)}`);
-          });
-
-        /*
-        await randsleep(5, 10).invoke();
-
-        logger.info(`${this.name} | checking game daily passes`);
-        await this.GetBalance().then((result) => {
-          logger.info(`${this.name} | daily game pass result | gameTicket=${result.gameTicket}`);
-
-          if (result.gameTicket > 0) {
-            this.emit('blum:ticketAvailable', result.gameTicket);
-          }
-        }).catch(err => {
-          logger.error(`${this.name} | ${err.message} | error=${JSON.stringify(err.cause, null, 2)}`);
+      if (now > this.__last_daily_time) {
+        await this.ClaimDaily().catch(err => {
+          logger.error(`${this.name} | daily claim failed | code: ${err.code}, reason: ${err.body || err.message}`);
         });
-        */
       }
 
       if (now > this.__farm_time.end) {
-        await this.ClaimFarming().then(async (result) => {
-          logger.info(`${this.name} | farming claim success | balance=${result.balance}`);
-          this.emit('blum:farmingReady');
-        }).catch((err) => {
-          logger.error(`${this.name} | ${err.message} | error=${JSON.stringify(err.cause, null, 2)}`);
+        await this.ClaimFarming().catch(err => {
+          logger.error(`${this.name} | farm claim failed | code: ${err.code}, reason: ${err.body || err.message}`);
         });
-
-        await randsleep(5, 10).invoke();
       }
 
-      await sleep(60000); // 1 minute
+      await sleep(600000);
     }
   }
 }

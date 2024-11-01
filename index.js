@@ -5,12 +5,13 @@ import ansi_styles from 'ansi-styles';
 import Blum from './blum.js';
 
 import { select, input, Separator } from '@inquirer/prompts';
-import { TelegramClient } from 'telegram';
+import { Logger, TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 
 
 const APP_ID = process.env.APP_ID;
 const APP_HASH = process.env.APP_HASH;
+const TG_LOGGER = new Logger('none');
 
 async function check_session_exists(phone) {
   try {
@@ -72,14 +73,16 @@ async function start_farming() {
   list.forEach(async (item, i) => {
     const phonenum = item.replace('.json', '');
     const session = await load_session(phonenum);
-    const tg = new TelegramClient(new StringSession(session.telegram.token), parseInt(APP_ID), APP_HASH);
+    const tg = new TelegramClient(new StringSession(session.telegram.token), parseInt(APP_ID), APP_HASH, {
+      baseLogger: TG_LOGGER
+    });
     const blum = new Blum(session.telegram.username, tg);
-    blum.on('blum:token', (token) => {
+    blum.on('blum:login', () => {
       save_session(phonenum, {
         ...session,
         blum: {
-          access: token.access,
-          refresh: token.refresh
+          access: blum.token.access,
+          refresh: blum.token.refresh
         }
       });
     });
