@@ -4,8 +4,7 @@ import { default as status_formatter } from 'statuses';
 import EventEmitter from 'node:events';
 import logger from './logger.js';
 import { Api } from 'telegram';
-import { randsleep, sleep, randomint } from './utils.js';
-import dayjs from 'dayjs';
+import { sleep } from './utils.js';
 
 const BLUMBOT_ID = 'BlumCryptoBot';
 
@@ -457,9 +456,13 @@ export default class Blum extends EventEmitter {
 
     await this.Login();
     await this.GetBalance().then(({ farming }) => {
-      this.__farm_time = {
-        start: farming.startTime,
-        end: farming.endTime
+      if (!farming) {
+        return this.StartFarming();
+      } else {
+        this.__farm_time = {
+          start: farming.startTime,
+          end: farming.endTime
+        }
       }
     });
     await this.ClaimDaily().then((status) => {
