@@ -435,6 +435,11 @@ export default class Blum extends EventEmitter {
           logger.info(`${this.name} | daily claim=same day`);
           break;
       }
+
+      const now = new Date();
+      now.setDate(now.getDate() + 1);
+
+      this.__last_daily_time = now.getTime();
     });
 
     this.on('blum:farmStart', ({ startTime, endTime }) => {
@@ -464,14 +469,7 @@ export default class Blum extends EventEmitter {
           end: farming.endTime
         }
       }
-    });
-    await this.ClaimDaily().then((status) => {
-      const now = new Date();
-      now.setDate(now.getDate() + 1);
-
-      this.__last_daily_time = now.getTime();
-    });
-    
+    }); 
 
     while (true) {
       const now = Date.now();
