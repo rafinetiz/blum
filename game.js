@@ -37,7 +37,7 @@ async function awaitWorkerMessage(worker, data) {
       resolve(data);
       worker.removeListener('message', cb);
     }
-    
+
     worker.on('message', cb);
     worker.postMessage(data);
   });
@@ -59,68 +59,72 @@ async function awaitWorkerMessage(worker, data) {
 
   const blum = new Blum(me.phone, tg);
 
-  await blum.Login();
-  console.log('[#] Login blum success');
+  for (let i = 0; i < 5; i++) {
+    await blum.Login();
+    console.log('[#] Login blum success');
+    console.log(`[#] Starting game #${i}`);
+    const responses = await blum.http.gamedomain.post('api/v2/game/play').json();
+    const { gameId } = responses;
+    console.log('[#] Game started:', gameId);
 
-  console.log('[#] Starting game');
-  const responses = await blum.http.gamedomain.post('api/v2/game/play').json();
-  const { gameId } = responses;
-  console.log('[#] Game started:', gameId);
+    const amount = 100// randomint(185, 203);
+    let sleep_time = 30000 + 5000 + 5000 + (Math.random() > 0.5 ? 5000 : 0);
 
-  const amount = randomint(185, 203);
-  let sleep_time = 30000 + 5000 + (Math.random() > 0.5 ? 5000 : 0);
+    if (amount > 195) {
+      sleep_time += 10000;
+    }
 
-  if (amount > 195) {
-    sleep_time += 10000;
+    console.log(`[#] Waiting ${sleep_time / 1000} seconds to act as in playing the game`);
+
+    await sleep(sleep_time);
+
+    console.log('[#] Trying claiming gameId:', gameId);
+    const payload = {
+      "CLOVER": {
+        amount: amount.toString()
+      }
+    }
+
+    const uuid = uuidv4();
+    const worker = new Worker('./game_worker.js');
+
+    console.log('[#] Generating PoW hash');
+    const pow = await awaitWorkerMessage(worker, {
+      id: uuid,
+      method: 'proof',
+      payload: gameId
+    });
+    console.log(`[#] PoW     ${gameId}`);
+    console.log(`[#] id    : ${pow.id}`);
+    console.log(`[#] nonce : ${pow.nonce}`);
+    console.log(`[#] hash  : ${pow.hash}`);
+
+    console.log('[#] Generating payload hash');
+    const pack = await awaitWorkerMessage(worker, {
+      id: uuid,
+      method: 'pack',
+      payload: {
+        gameId,
+        challenge: pow,
+        earnedAssets: payload
+      }
+    });
+    console.log(`[#] Payload  ${gameId}`);
+    console.log(`[#] id     : ${pow.id}`);
+    console.log(`[#] amount : ${amount} (random)`);
+    console.log(`[#] hash   : ${pack.hash}`);
+
+    worker.unref();
+
+    console.log('[#] Sending request');
+    const response = await blum.http.gamedomain.post('api/v2/game/claim', {
+      json: {
+        payload: pack.hash
+      }
+    }).text();
+    console.log(`[#] Game #${i} result:`, gameId, response);
+
+    await sleep(randomint(5000, 10000));
+    console.log('');
   }
-
-  console.log(`[#] Waiting ${sleep_time / 1000} seconds to act as in playing the game`);
-
-  await sleep(sleep_time);
-
-  console.log('[#] Trying claiming gameId:', gameId);
-  const payload = {
-    "CLOVER": {
-      amount: amount.toString()
-    }
-  }
-
-  const uuid = uuidv4();
-  const worker = new Worker('./game_worker.js');
-
-  console.log('[#] Generating PoW hash');
-  const pow = await awaitWorkerMessage(worker, {
-    id: uuid,
-    method: 'proof',
-    payload: gameId
-  });
-  console.log(`[#] PoW     ${gameId}`);
-  console.log(`[#] id    : ${pow.id}`);
-  console.log(`[#] nonce : ${pow.nonce}`);
-  console.log(`[#] hash  : ${pow.hash}`);
-
-  console.log('[#] Generating payload hash');
-  const pack = await awaitWorkerMessage(worker, {
-    id: uuid,
-    method: 'pack',
-    payload: {
-      gameId,
-      challenge: pow,
-      earnedAssets: payload
-    }
-  });
-  console.log(`[#] Payload  ${gameId}`);
-  console.log(`[#] id     : ${pow.id}`);
-  console.log(`[#] amount : ${amount} (random)`);
-  console.log(`[#] hash   : ${pack.hash}`);
-
-  worker.unref();
-
-  console.log('[#] Sending request');
-  const response = await blum.http.gamedomain.post('api/v2/game/claim', {
-    json: {
-      payload: pack.hash
-    }
-  }).text();
-  console.log('[#] Game result:', gameId, response);
 })();

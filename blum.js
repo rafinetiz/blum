@@ -382,7 +382,7 @@ export default class Blum extends EventEmitter {
       responseType: 'json'
     });
 
-    
+
   }
 
   /**
@@ -443,7 +443,7 @@ export default class Blum extends EventEmitter {
     });
 
     this.on('blum:farmStart', ({ startTime, endTime }) => {
-      logger.info(`${this.name} | farm started, claim on ${new Date(endTime).toLocaleString()}`);
+      logger.info(`${this.name} | farming started, claim on ${new Date(endTime).toLocaleString()}`);
 
       this.__farm_time = {
         start: startTime,
@@ -452,27 +452,29 @@ export default class Blum extends EventEmitter {
     });
 
     this.on('blum:farmClaim', (balance) => {
-      logger.info(`${this.name} | farm claim success | balance=${balance}`);
+      logger.info(`${this.name} | farming claim success | balance=${balance}`);
 
-      this.StartFarming().catch(err => {
-        logger.error(`${this.name} | start farming failed | code: ${err.code}, reason: ${err.body || err.message}`);
-      });
+      this.__farm_time = null;
     });
 
     await this.Login();
     await this.GetBalance().then(({ farming }) => {
-      if (!farming) {
-        return this.StartFarming();
-      } else {
+      if (farming) {
         this.__farm_time = {
           start: farming.startTime,
           end: farming.endTime
         }
       }
-    }); 
+    });
 
     while (true) {
       const now = Date.now();
+
+      if (this.__farm_time === null) {
+        await this.StartFarming().catch(err => {
+          logger.error(`${this.name} | start farming failed | code: ${err.code}, reason: ${err.body || err.message}`);
+        });
+      }
 
       if (now > this.__last_daily_time) {
         await this.ClaimDaily().catch(err => {
@@ -480,9 +482,9 @@ export default class Blum extends EventEmitter {
         });
       }
 
-      if (now > this.__farm_time.end) {
+      if (this.__farm_time && now > this.__farm_time.end) {
         await this.ClaimFarming().catch(err => {
-          logger.error(`${this.name} | farm claim failed | code: ${err.code}, reason: ${err.body || err.message}`);
+          logger.error(`${this.name} | farming claim failed | code: ${err.code}, reason: ${err.body || err.message}`);
         });
       }
 
